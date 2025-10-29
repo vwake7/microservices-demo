@@ -28,45 +28,43 @@ jobs:
 
       - name: Build and push microservice images
         run: |
-          SERVICES=(
-            adservice
-            cartservice
-            checkoutservice
-            currencyservice
-            emailservice
-            frontend
-            loadgenerator
-            paymentservice
-            productcatalogservice
-            recommendationservice
-            shippingservice
-          )
+          mkdir -p trivy-reports
+          cd src
 
-          for service in "${SERVICES[@]}"; do
-            echo "Building image for $service..."
-            docker build -t $DOCKERHUB_USERNAME/$service:latest ./src/$service
-            echo "Pushing image $DOCKERHUB_USERNAME/$service:latest"
-            docker push $DOCKERHUB_USERNAME/$service:latest
+          for service in *; do
+            if [ -d "$service" ] && [ -f "$service/Dockerfile" ]; then
+              echo "Building image for $service..."
+              docker build -t $DOCKERHUB_USERNAME/$service:latest $service
+              echo "Pushing image $DOCKERHUB_USERNAME/$service:latest"
+              docker push $DOCKERHUB_USERNAME/$service:latest
+            else
+              echo "Skipping $service (no Dockerfile found)"
+            fi
           done
+        shell: bash
 
       - name: Run Trivy file system scan (source code)
         run: |
-          mkdir -p trivy-reports
           echo "Running Trivy file system scan..."
-          docker run --rm -v $(pwd):/app aquasec/trivy fs --no-progress --format table /app > trivy-reports/trivy-fs.txt || true
+          docker run --rm -v $(pwd):/app aquasec/trivy fs \
+            --no-progress --format table /app > trivy-reports/trivy-fs.txt || true
 
       - name: Run Trivy image scan (Docker images)
         run: |
-          mkdir -p trivy-reports
-          for service in adservice cartservice checkoutservice currencyservice emailservice frontend loadgenerator paymentservice productcatalogservice recommendationservice shippingservice; do
-            echo "Scanning image $DOCKERHUB_USERNAME/$service:latest"
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image \
-              --severity HIGH,CRITICAL \
-              --no-progress $DOCKERHUB_USERNAME/$service:latest > trivy-reports/trivy-$service.txt || true
+          cd src
+          for service in *; do
+            if [ -f "$service/Dockerfile" ]; then
+              echo "Scanning image $DOCKERHUB_USERNAME/$service:latest"
+              docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image \
+                --severity HIGH,CRITICAL \
+                --no-progress $DOCKERHUB_USERNAME/$service:latest > ../trivy-reports/trivy-$service.txt || true
+            fi
           done
+        shell: bash
 
       - name: Upload Trivy reports as artifacts
         uses: actions/upload-artifact@v4
         with:
           name: trivy-findings
           path: trivy-reports/
+

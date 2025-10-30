@@ -32,14 +32,22 @@ jobs:
           cd src
 
           for service in *; do
-            if [ -d "$service" ] && [ -f "$service/Dockerfile" ]; then
-              echo "Building image for $service..."
-              docker build -t $DOCKERHUB_USERNAME/$service:latest $service
-              echo "Pushing image $DOCKERHUB_USERNAME/$service:latest"
-              docker push $DOCKERHUB_USERNAME/$service:latest
+            # Handle special nested Dockerfile for cartservice
+            if [ "$service" = "cartservice" ] && [ -f "$service/src/Dockerfile" ]; then
+              dockerfile_path="$service/src/Dockerfile"
+              context_dir="$service/src"
+            elif [ -f "$service/Dockerfile" ]; then
+              dockerfile_path="$service/Dockerfile"
+              context_dir="$service"
             else
               echo "Skipping $service (no Dockerfile found)"
+              continue
             fi
+
+            echo "Building image for $service using $dockerfile_path..."
+            docker build -t $DOCKERHUB_USERNAME/$service:latest -f $dockerfile_path $context_dir
+            echo "Pushing image $DOCKERHUB_USERNAME/$service:latest"
+            docker push $DOCKERHUB_USERNAME/$service:latest
           done
         shell: bash
 
@@ -53,7 +61,12 @@ jobs:
         run: |
           cd src
           for service in *; do
-            if [ -f "$service/Dockerfile" ]; then
+            if [ "$service" = "cartservice" ] && [ -f "$service/src/Dockerfile" ]; then
+              echo "Scanning nested image $DOCKERHUB_USERNAME/$service:latest"
+              docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image \
+                --severity HIGH,CRITICAL \
+                --no-progress $DOCKERHUB_USERNAME/$service:latest > ../trivy-reports/trivy-$service.txt || true
+            elif [ -f "$service/Dockerfile" ]; then
               echo "Scanning image $DOCKERHUB_USERNAME/$service:latest"
               docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image \
                 --severity HIGH,CRITICAL \
